@@ -1,13 +1,9 @@
 import PyPDF2
-import docx
 import re
-import json
-import spacy
+import pandas as pd
 import nltk
 from nltk.tokenize import sent_tokenize
-
-# Load SpaCy model
-nlp = spacy.load("en_core_web_sm")
+import os
 
 # Download NLTK data (for first-time use)
 nltk.download('punkt')
@@ -19,19 +15,6 @@ def extract_text_from_pdf(pdf_path):
         for page in reader.pages:
             text += page.extract_text()
     return text
-
-def extract_text_from_docx(docx_path):
-    doc = docx.Document(docx_path)
-    text = '\n'.join([para.text for para in doc.paragraphs])
-    return text
-
-def extract_text(file_path):
-    if file_path.endswith('.pdf'):
-        return extract_text_from_pdf(file_path)
-    elif file_path.endswith('.docx'):
-        return extract_text_from_docx(file_path)
-    else:
-        raise ValueError('Unsupported file format')
 
 def preprocess_text(text):
     text = re.sub(r'\n+', '\n', text)  # Replace multiple newlines with a single newline
@@ -45,55 +28,52 @@ def extract_contact_info(text):
     email_matches = email_pattern.findall(text)
     return phone_matches, email_matches
 
-def extract_education(text):
-    education_section = re.search(r'(Education|Academic Background|Educational Qualifications|Academic Qualifications)(.*?)(Experience|Skills|Projects|References|$)', text, re.S)
-    if education_section:
-        education_text = education_section.group(2)
-        return education_text.strip()
-    return ''
-
-def extract_experience(text):
-    experience_section = re.search(r'(Experience|Work History|Professional Experience|Employment History)(.*?)(Education|Skills|Projects|References|$)', text, re.S)
-    if experience_section:
-        experience_text = experience_section.group(2)
-        return experience_text.strip()
-    return ''
-
-def extract_skills(text):
-    skills_section = re.search(r'(Skills|Technical Skills|Proficiencies)(.*?)(Experience|Education|Projects|References|$)', text, re.S)
-    if skills_section:
-        skills_text = skills_section.group(2)
-        return skills_text.strip()
+def extract_section(text, section_name):
+    pattern = re.compile(rf'({section_name})(.*?)(Education|Experience|Skills|Projects|References|$)', re.S)
+    section = pattern.search(text)
+    if section:
+        return section.group(2).strip()
     return ''
 
 def parse_resume(text):
     contact_info = extract_contact_info(text)
-    education = extract_education(text)
-    experience = extract_experience(text)
-    skills = extract_skills(text)
+    education = extract_section(text, 'Education')
+    experience = extract_section(text, 'Experience')
+    skills = extract_section(text, 'Skills')
     
     resume_data = {
-        'contact_info': {
-            'phone': contact_info[0] if contact_info[0] else None,
-            'email': contact_info[1] if contact_info[1] else None
-        },
-        'education': education,
-        'experience': experience,
-        'skills': skills
+        'Phone': ', '.join(contact_info[0]) if contact_info[0] else None,
+        'Email': ', '.join(contact_info[1]) if contact_info[1] else None,
+        'Education': education,
+        'Experience': experience,
+        'Skills': skills
     }
     
     return resume_data
 
+def save_to_csv(data, output_file):
+    # Convert to DataFrame
+    df = pd.DataFrame([data])
+    df.to_csv(output_file, index=False)
+
 def main():
-    file_path = input("Please enter the path to the resume file (PDF or DOCX): ")
+    file_path = input("Please enter the path to the resume PDF file: ")
     
     try:
-        text = extract_text(file_path)
+        text = extract_text_from_pdf(file_path)
         cleaned_text = preprocess_text(text)
         resume_data = parse_resume(cleaned_text)
         
+        # Generate the output file path
+        base_name = os.path.basename(file_path)
+        name, ext = os.path.splitext(base_name)
+        output_file = f"{name}_parsed.csv"
+        
         print("Parsed Resume Data:")
-        print(json.dumps(resume_data, indent=2))
+        print(resume_data)
+        
+        save_to_csv(resume_data, output_file)
+        print(f"Data has been saved to {output_file}")
     except FileNotFoundError:
         print(f"Error: The file '{file_path}' was not found.")
     except ValueError as ve:
